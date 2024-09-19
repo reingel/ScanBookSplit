@@ -1,4 +1,3 @@
-import unittest
 import os
 import sys
 from dataclasses import dataclass
@@ -12,73 +11,65 @@ from Box import Box
 
 
 
-class Scan2Pdf:
-    def __init__(self, input_folder_path, output_folder_path, debug_folder_path=None):
-        self.ifp = input_folder_path
-        self.ofp = output_folder_path
-        self.dfp = debug_folder_path
+class BookScanSplit:
+    def __init__(self, input_folder, output_folder, debug_folder=None):
+        # folders for loading input images and saving output & debug images
+        self.input_folder = input_folder
+        self.output_folder = output_folder
+        self.debug_folder = debug_folder
 
-        filenames = os.listdir(self.ifp)
-        # filenames = ['010.jpg']
-        filenames = sorted(filenames)
-        filenames = [filename for filename in filenames if filename[-3:].lower() == 'jpg']
-
-        self.n_files = len(filenames)
-        self.in_filenames = []
-        self.out_filenames = []
-        self.hist_filenames = []
-        self.Sobel_filenames = []
-        self.Hough_filenames = []
-        self.HoughColor_filenames = []
-        self.CenterLine_filenames = []
-        self.ExtractBox_filenames = []
-        for filename in filenames:
-            name, ext = os.path.splitext(filename)
-            self.in_filenames.append(os.path.join(self.ifp, filename))
-            self.out_filenames.append(os.path.join(self.ofp, filename))
-            self.hist_filenames.append(os.path.join(self.dfp, name + '_1_hist' + '.jpg'))
-            self.Sobel_filenames.append(os.path.join(self.dfp, name + '_2_Sobel' + '.jpg'))
-            self.Hough_filenames.append(os.path.join(self.dfp, name + '_3_Hough' + '.jpg'))
-            self.HoughColor_filenames.append(os.path.join(self.dfp, name + '_4_HoughColor' + '.jpg'))
-            self.CenterLine_filenames.append(os.path.join(self.dfp, name + '_5_CenterLine' + '.jpg'))
-            self.ExtractBox_filenames.append(os.path.join(self.dfp, name + '_6_ExtractBox' + '.jpg'))
-        
         # array for color image
         self.img = None
         # text detection results
-        self.det = None
+        self.text_data = None
 
-        # Color & line width
-        # left & right extract boxes for pdf generation
-        self.ebc, self.eblw = (0, 255, 0), 5
-        # text-detected boxes
-        self.dbc, self.dblw = (255, 255, 0), 2
-        # histogram edges
-        self.hec, self.helw = (255, 0, 0), 2
-        # found center line
-        self.clc, self.cllw = (0, 0, 255), 5
-        # central region
-        self.crc, self.crlw = (0, 255, 255), 3
+        # Load and filter a list of files (jpg only)
+        filenames = sorted([f for f in os.listdir(self.input_folder) if f.lower().endswith('.jpg')])
+        self.n_files = len(filenames)
 
-    def clear_output_folder(self):
-        filenames = os.listdir(self.ofp)
-        for filename in filenames:
-            os.remove(os.path.join(self.ofp, filename))
-    
-    def clear_debug_folder(self):
-        filenames = os.listdir(self.dfp)
-        for filename in filenames:
-            os.remove(os.path.join(self.dfp, filename))
-    
+        # Store paths for input, output, and debug images
+        self.input_files = [os.path.join(self.input_folder, f) for f in filenames]
+        self.output_files = [os.path.join(self.output_folder, f) for f in filenames]
+        if self.debug_folder:
+            self.debug_files = {
+                "hist": [self._debug_file(f, '_1_hist') for f in filenames],
+                "hough": [self._debug_file(f, '_2_hough') for f in filenames],
+                "center": [self._debug_file(f, '_3_center') for f in filenames],
+                "page": [self._debug_file(f, '_4_page') for f in filenames]
+            }
+
+        # settings for drawing style
+        self.settings = { # color, thickness
+            "page_box_style": ((0, 255, 0), 5),
+            "text_box_style": ((255, 255, 0), 2),
+            "histogram_edge_style": ((255, 0, 0), 2),
+            "center_line_style": ((0, 0, 255), 5),
+            "central_region_style": ((0, 255, 255), 3),
+        }
+
+    def _debug_file(self, filename, suffix):
+        """Helper function to generate filenames for debug images."""
+        name, ext = os.path.splitext(filename)
+        return os.path.join(self.debug_folder, f"{name}{suffix}{ext}")
+
+    def clear_output_folders(self):
+        self.clear_folder(self.output_folder)
+        if self.debug_folder:
+            self.clear_folder(self.debug_folder)
+
+    def clear_folder(self, folder):
+        for f in os.listdir(folder):
+            os.remove(os.path.join(folder, f))
+
     def open_image(self, i):
-        filename = self.in_filenames[i]
+        filename = self.input_files[i]
         self.img = cv2.imread(filename)
     
     def detect_text(self, i):
         if not self.is_image_loaded():
             raise(RuntimeError)
 
-        self.det = pytesseract.image_to_data(self.img, output_type=Output.DICT)
+        self.text_data = pytesseract.image_to_data(self.img, output_type=Output.DICT)
     
     def close_image(self):
         self.img = None
@@ -93,7 +84,7 @@ class Scan2Pdf:
         height, width, _ = self.img.shape
         return width, height
     
-    def check_single_page(self, i, save_debug_image=False):
+    def check_single_page(self, i):
         if not self.is_image_loaded():
             raise(RuntimeError)
 
@@ -103,16 +94,17 @@ class Scan2Pdf:
         is_single = False
         if width < height: # single page
             is_single = True
-            if save_debug_image:
+            if self.debug_folder:
                 # draw extract box
                 eb = Box(0, width, 0, height)
-                eb.draw(img, self.ebc, self.eblw)
+                eb.draw(img, *self.settings['page_box_style'])
                 # save image as output file
-                cv2.imwrite(self.ExtractBox_filenames[i], img)
-            cv2.imwrite(self.out_filenames[i], self.img)
+                cv2.imwrite(self.debug_files['page'][i], img)
+            cv2.imwrite(self.output_files[i], self.img)
+            print('single page')
         return is_single
 
-    def find_center_line_by_hist(self, k, save_debug_image=False, n_bin=27):
+    def find_center_line_by_hist(self, k, n_bin=27):
         if not self.is_image_loaded():
             raise(RuntimeError)
 
@@ -120,7 +112,7 @@ class Scan2Pdf:
         img = self.img.copy()
 
         # 이미지에서 텍스트 추출
-        d = self.det
+        d = self.text_data
 
         # 각 박스의 좌우 x 좌표 계산
         x_centers = []
@@ -128,7 +120,7 @@ class Scan2Pdf:
         for i in range(n_boxes):
             if d['level'][i] >= 2:
                 x, y, w, h = d['left'][i], d['top'][i], d['width'][i], d['height'][i]
-                Box(x, x + w, y, y + h).draw(img, self.dbc, self.dblw)
+                Box(x, x + w, y, y + h).draw(img, *self.settings['text_box_style'])
                 x_centers.append(x)
                 x_centers.append(x + w)
         
@@ -137,7 +129,7 @@ class Scan2Pdf:
         n_exclude = int(n_bin * 0.4)
         hist, bin_edges = np.histogram(x_centers, bins=np.arange(0, width + bin_size, bin_size))
         for bin_edge in bin_edges[n_exclude:-(n_exclude + 1)]:
-            cv2.line(img, (int(bin_edge), 0), (int(bin_edge), height), self.hec, self.helw)
+            cv2.line(img, (int(bin_edge), 0), (int(bin_edge), height), *self.settings['histogram_edge_style'])
 
         # 가장 적은 텍스트가 있는 구간을 찾음 (이곳이 중앙선일 가능성)
         min_bin_index = np.argmin(hist[n_exclude:-n_exclude]) + n_exclude # 양쪽 하나씩 제외 (페이지 좌우 마진 제외하고 가장 텍스트가 적은 구간)
@@ -165,17 +157,17 @@ class Scan2Pdf:
         cv2.rectangle(img, (x_offset, y_offset), (plt_width*2 + x_offset, plt_height*2 + y_offset), (0, 0, 0), 3)
 
         # 중앙선 그리기
-        cv2.line(img, (int(center_line), 0), (int(center_line), height), self.clc, self.cllw)
+        cv2.line(img, (int(center_line), 0), (int(center_line), height), *self.settings['center_line_style'])
 
         # 디버그용 이미지로 저장
-        if save_debug_image:
-            cv2.imwrite(self.hist_filenames[k], img)
+        if self.debug_folder:
+            cv2.imwrite(self.debug_files['hist'][k], img)
 
         # print(f'{hist=}\n{hist[n_exclude:-n_exclude]=}\n{bin_edges=}\n{center_line=}')
 
         return center_line
 
-    def find_center_line_by_Hough(self, k, save_debug_image=False):
+    def find_center_line_by_Hough(self, k):
         if not self.is_image_loaded():
             raise(RuntimeError)
 
@@ -206,7 +198,7 @@ class Scan2Pdf:
         crl_ratio = central_region_left / width
         crr_ratio = central_region_right / width
         central_region = binary[:, central_region_left:central_region_right]
-        cv2.rectangle(img, (central_region_left, 0), (central_region_right, height), self.crc, self.crlw)
+        cv2.rectangle(img, (central_region_left, 0), (central_region_right, height), *self.settings['central_region_style'])
 
         # 수직선 감지 (Hough Line Transform 사용)
         lines = cv2.HoughLinesP(central_region, rho=1, theta=np.pi/180, threshold=100, minLineLength=80, maxLineGap=15)
@@ -222,16 +214,14 @@ class Scan2Pdf:
                             fold_position = x1 + central_region_left  # 중앙 영역 기준 좌표 변환
                             fold_pos_ratio = fold_position / width
                             # 빨간색 수직선 그리기
-                            cv2.line(img, (fold_position, 0), (fold_position, height), self.clc, self.cllw)
+                            cv2.line(img, (fold_position, 0), (fold_position, height), *self.settings['center_line_style'])
                             raise Exception('break')
             except Exception:
                 pass
 
         # 결과 이미지 저장
-        if save_debug_image:
-            # cv2.imwrite(self.Sobel_filenames[k], normalized_sobelx)
-            # cv2.imwrite(self.Hough_filenames[k], binary)
-            cv2.imwrite(self.HoughColor_filenames[k], img)
+        if self.debug_folder:
+            cv2.imwrite(self.debug_files['hough'][k], img)
 
         return fold_position
     
@@ -246,15 +236,16 @@ class Scan2Pdf:
         width, height = self.get_img_width_height()
         x_half = int(width / 2)
 
-        cv2.line(img, (x_half, 0), (x_half, height), self.dbc, 7)
-        cv2.line(img, (xc_hi, 0), (xc_hi, height), self.ebc, 7)
-        cv2.line(img, (xc_Hg, 0), (xc_Hg, height), self.hec, 7)
-        cv2.line(img, (xc, 0), (xc, height), self.clc, 3)
+        cv2.line(img, (x_half, 0), (x_half, height), (255, 255, 0), 7)
+        cv2.line(img, (xc_hi, 0), (xc_hi, height), (0, 255, 0), 7)
+        cv2.line(img, (xc_Hg, 0), (xc_Hg, height), (255, 0, 0), 7)
+        cv2.line(img, (xc, 0), (xc, height), (0, 0, 255), 3)
 
-        cv2.imwrite(self.CenterLine_filenames[k], img)
+        if self.debug_folder:
+            cv2.imwrite(self.debug_files['center'][k], img)
 
 
-    def draw_text_regions(self, k, xc, margin=50, min_rate=0.6, save_debug_image=False):
+    def draw_text_regions(self, k, xc, margin=50, min_rate=0.6):
         if not self.is_image_loaded():
             raise(RuntimeError)
 
@@ -262,7 +253,7 @@ class Scan2Pdf:
         img = self.img.copy()
 
         # 이미지에서 텍스트 추출
-        d = self.det
+        d = self.text_data
         x0, y0, w0, h0 = d['left'][0], d['top'][0], d['width'][0], d['height'][0]
         fullpage = Box(x0, x0 + w0, y0, y0 + h0)
         left_half_page = Box(fullpage.left, xc, fullpage.top, fullpage.bottom)
@@ -278,7 +269,7 @@ class Scan2Pdf:
             if d['level'][i] >= 2:
                 x, y, w, h = d['left'][i], d['top'][i], d['width'][i], d['height'][i]
                 detected = Box(x, x + w, y, y + h)
-                detected.draw(img, self.dbc, self.dblw)
+                detected.draw(img, *self.settings['text_box_style'])
                 if detected.right < xc:
                     det_left.append(detected.lrtb)
                 elif detected.left > xc:
@@ -293,8 +284,6 @@ class Scan2Pdf:
             text_region_left = Box(
                 max(min(det_left[:,0]) - margin, left_half_page.left),
                 min(max(det_left[:,1]) + margin, left_half_page.right),
-                # max(min(det_left[:,2]) - margin, left_half_page.top),
-                # min(max(det_left[:,3]) + margin, left_half_page.bottom),
                 default_left_extract_page.top,
                 default_left_extract_page.bottom,
                 )
@@ -307,24 +296,22 @@ class Scan2Pdf:
             text_region_right = Box(
                 max(min(det_right[:,0]) - margin, right_half_page.left),
                 min(max(det_right[:,1]) + margin, right_half_page.right),
-                # max(min(det_right[:,2]) - margin, right_half_page.top),
-                # min(max(det_right[:,3]) + margin, right_half_page.bottom),
                 default_right_extract_page.top,
                 default_right_extract_page.bottom,
                 )
             if text_region_right.width < fullpage.width / 2 * min_rate or text_region_right.height < fullpage.height * min_rate:
                 text_region_right = default_right_extract_page
 
-        text_region_left.draw(img, self.ebc, self.eblw)
-        text_region_right.draw(img, self.ebc, self.eblw)
+        text_region_left.draw(img, *self.settings['page_box_style'])
+        text_region_right.draw(img, *self.settings['page_box_style'])
 
-        if save_debug_image:
-            cv2.imwrite(self.ExtractBox_filenames[k], img)
+        if self.debug_folder:
+            cv2.imwrite(self.debug_files['page'][k], img)
 
         extracted_region_left = self.img[text_region_left.top:text_region_left.bottom, text_region_left.left:text_region_left.right]
         extracted_region_right = self.img[text_region_right.top:text_region_right.bottom, text_region_right.left:text_region_right.right]
 
-        path, filename = os.path.split(self.out_filenames[k])
+        path, filename = os.path.split(self.output_files[k])
         file, ext = os.path.splitext(filename)
         filename_left = os.path.join(path, filename + '-1' + ext)
         filename_right = os.path.join(path, filename + '-2' + ext)
@@ -334,34 +321,34 @@ class Scan2Pdf:
     
     def convert(self):
         for k in range(self.n_files):
-            filename = self.in_filenames[k]
+            filename = self.input_files[k]
             print('----- ' + filename + ' -----')
             self.open_image(k)
-            is_single = self.check_single_page(k, save_debug_image=False)
+            is_single = self.check_single_page(k)
             if not is_single:
                 self.detect_text(k)
-                xc_hi = self.find_center_line_by_hist(k, save_debug_image=False)
-                xc_Hg = self.find_center_line_by_Hough(k, save_debug_image=False)
+                xc_hi = self.find_center_line_by_hist(k)
+                xc_Hg = self.find_center_line_by_Hough(k)
                 xc = self.select_center_line(xc_hi, xc_Hg)
-                # self.draw_center_lines(k, xc_hi, xc_Hg, xc)
+                self.draw_center_lines(k, xc_hi, xc_Hg, xc)
                 self.draw_text_regions(k, xc)
                 print(f'{xc_hi=}, {xc_Hg=} : {xc=}')
             self.close_image()
 
 
-
+import unittest
 
 class TestBookScan(unittest.TestCase):
     def test_main(self):
-        input_folder_path = 'input_folder/'
-        output_folder_path = 'output_folder/'
-        debug_folder_path = 'debug_folder/'
+        input_folder= 'input_folder/'
+        output_folder= 'output_folder/'
+        debug_folder= 'debug_folder/'
 
-        s2p = Scan2Pdf(input_folder_path, output_folder_path, debug_folder_path)
-
-        s2p.clear_output_folder()
-        s2p.clear_debug_folder()
-        s2p.convert()
+        bss = BookScanSplit(input_folder, output_folder, debug_folder)
+        # bss = BookScanSplit(input_folder, output_folder) # do not save debug images
+        bss.clear_output_folders()
+        # bss.clear_folder(debug_folder) # forcefully clear debug folder
+        bss.convert()
 
 if __name__ == '__main__':
     unittest.main()
