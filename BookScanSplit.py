@@ -61,31 +61,27 @@ class BookScanSplit:
         for f in os.listdir(folder):
             os.remove(os.path.join(folder, f))
 
-    def open_image(self, i):
+    def load_image(self, i):
         filename = self.input_files[i]
         self.img = cv2.imread(filename)
-    
-    def detect_text(self, i):
-        if not self.is_image_loaded():
-            raise(RuntimeError)
-
-        self.text_data = pytesseract.image_to_data(self.img, output_type=Output.DICT)
     
     def close_image(self):
         self.img = None
     
-    def is_image_loaded(self):
-        return self.img is not None
+    def detect_text(self, i):
+        if self.img is None:
+            raise(RuntimeError)
+        self.text_data = pytesseract.image_to_data(self.img, output_type=Output.DICT)
     
     def get_img_width_height(self):
-        if not self.is_image_loaded():
+        if self.img is None:
             raise(RuntimeError)
 
         height, width, _ = self.img.shape
         return width, height
     
     def check_single_page(self, i):
-        if not self.is_image_loaded():
+        if self.img is None:
             raise(RuntimeError)
 
         width, height = self.get_img_width_height()
@@ -105,7 +101,7 @@ class BookScanSplit:
         return is_single
 
     def find_center_line_by_hist(self, k, n_bin=27):
-        if not self.is_image_loaded():
+        if self.img is None:
             raise(RuntimeError)
 
         width, height = self.get_img_width_height()
@@ -168,7 +164,7 @@ class BookScanSplit:
         return center_line
 
     def find_center_line_by_Hough(self, k):
-        if not self.is_image_loaded():
+        if self.img is None:
             raise(RuntimeError)
 
         # 이미지 그레이스케일로 변환
@@ -244,9 +240,8 @@ class BookScanSplit:
         if self.debug_folder:
             cv2.imwrite(self.debug_files['center'][k], img)
 
-
     def draw_text_regions(self, k, xc, margin=50, min_rate=0.6):
-        if not self.is_image_loaded():
+        if self.img is None:
             raise(RuntimeError)
 
         width, height = self.get_img_width_height()
@@ -319,11 +314,11 @@ class BookScanSplit:
         cv2.imwrite(filename_left, extracted_region_left)
         cv2.imwrite(filename_right, extracted_region_right)
     
-    def convert(self):
+    def split(self):
         for k in range(self.n_files):
             filename = self.input_files[k]
             print('----- ' + filename + ' -----')
-            self.open_image(k)
+            self.load_image(k)
             is_single = self.check_single_page(k)
             if not is_single:
                 self.detect_text(k)
@@ -348,7 +343,7 @@ class TestBookScan(unittest.TestCase):
         # bss = BookScanSplit(input_folder, output_folder) # do not save debug images
         bss.clear_output_folders()
         # bss.clear_folder(debug_folder) # forcefully clear debug folder
-        bss.convert()
+        bss.split()
 
 if __name__ == '__main__':
     unittest.main()
