@@ -301,8 +301,8 @@ class BookScanSplit:
         # 추출된 페이지 저장
         path, filename = os.path.split(self.output_files[k])
         file, ext = os.path.splitext(filename)
-        filename_left = os.path.join(path, filename + '-1' + ext)
-        filename_right = os.path.join(path, filename + '-2' + ext)
+        filename_left = os.path.join(path, file + '-1' + ext)
+        filename_right = os.path.join(path, file + '-2' + ext)
         extracted_page_left = self.img[page_box_left.top:page_box_left.bottom, page_box_left.left:page_box_left.right]
         extracted_page_right = self.img[page_box_right.top:page_box_right.bottom, page_box_right.left:page_box_right.right]
         cv2.imwrite(filename_left, extracted_page_left)
