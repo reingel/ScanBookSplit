@@ -12,11 +12,19 @@ from Box import Box
 
 
 class BookScanSplit:
-    def __init__(self, input_folder, output_folder, debug_folder=None):
+    def __init__(self, input_folder, output_folder=None, debug_folder=None):
+        if output_folder is None:
+            output_folder = os.path.join(input_folder, 'output_folder')
+
         # folders for loading input images and saving output & debug images
         self.input_folder = input_folder
         self.output_folder = output_folder
         self.debug_folder = debug_folder
+
+        # create folders if not exists
+        self._create_folder(self.output_folder)
+        if self.debug_folder is not None:
+            self._create_folder(self.debug_folder)
 
         # array for color image
         self.img = None
@@ -57,6 +65,17 @@ class BookScanSplit:
             'page_margin': 50,
             'min_page_size_ratio': 0.6,
         }
+
+    def _create_folder(self, path):
+        # create folders if not exists
+        if not os.path.exists(path):
+            try:
+                os.makedirs(path)
+                print(f'Directory created: {path}')
+            except OSError as error:
+                print(f'Directory creation failed: {error}')
+        else:
+            print(f'Directory already exists: {path}')
 
     def _debug_file(self, filename, suffix):
         """Helper function to generate filenames for debug images."""
@@ -347,8 +366,9 @@ class TestBookScan(unittest.TestCase):
         output_folder= 'output_folder/'
         debug_folder= 'debug_folder/'
 
-        bss = BookScanSplit(input_folder, output_folder, debug_folder)
+        # bss = BookScanSplit(input_folder, output_folder, debug_folder)
         # bss = BookScanSplit(input_folder, output_folder) # do not save debug images
+        bss = BookScanSplit(input_folder)
         bss.clear_output_folders()
         # bss.clear_folder(debug_folder) # forcefully clear debug folder
         bss.split()
