@@ -12,11 +12,12 @@ from Box import Box
 
 
 class BookScanSplit:
-    def __init__(self, input_folder, output_folder=None, debug_folder=None):
+    def __init__(self, mode, input_folder, output_folder=None, debug_folder=None):
         if output_folder is None:
             output_folder = os.path.join(input_folder, 'output_folder')
 
         # folders for loading input images and saving output & debug images
+        self.mode = mode
         self.input_folder = input_folder
         self.output_folder = output_folder
         self.debug_folder = debug_folder
@@ -329,12 +330,20 @@ class BookScanSplit:
    
     def _get_page_box(self, detected_textboxes, default_page, halfpage, min_width, min_height, margin, side):
         if len(detected_textboxes) > 0:
-            page_box = Box(
-                max(min(detected_textboxes[:, 0]) - margin, halfpage.left),
-                min(max(detected_textboxes[:, 1]) + margin, halfpage.right),
-                default_page.top,
-                default_page.bottom,
-            )
+            if self.mode == 'text':
+                page_box = Box(
+                    max(min(detected_textboxes[:, 0]) - margin, halfpage.left),
+                    min(max(detected_textboxes[:, 1]) + margin, halfpage.right),
+                    default_page.top, default_page.bottom,
+                )
+            elif self.mode == 'photo':
+                page_box = Box(
+                    halfpage.left, halfpage.right,
+                    default_page.top, default_page.bottom,
+                )
+            else:
+                raise(RuntimeError)
+
             if page_box.width < min_width or page_box.height < min_height:
                 page_box = default_page
         else:
